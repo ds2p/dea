@@ -54,6 +54,7 @@ def cfg():
         "device": device,
     }
 
+
 @config_ingredient.named_config
 def poisson_voc():
     hyp = {

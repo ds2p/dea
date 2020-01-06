@@ -14,6 +14,7 @@ import numpy as np
 
 import utils
 
+
 def train_ae(
     net,
     data_loader,
@@ -49,9 +50,11 @@ def train_ae(
                 for idx_test, (img_test, _) in enumerate(test_loader):
                     img_test = img_test.to(device)
                     if data_distribution == "binomial":
-                        sampler = torch.distributions.bernoulli.Bernoulli(probs=img_test)
+                        sampler = torch.distributions.bernoulli.Bernoulli(
+                            probs=img_test
+                        )
                         img_test_noisy = sampler.sample()
-                        for j in range(Jg-1):
+                        for j in range(Jg - 1):
                             img_test_noisy += sampler.sample()
                         img_test_noisy /= Jg
                     elif data_distribution == "poisson":
@@ -61,7 +64,6 @@ def train_ae(
                             continue
                         sampler = torch.distributions.poisson.Poisson(rate)
                         img_test_noisy = sampler.sample() * Q
-
 
                     Hx_hat, _, _ = net(img_test_noisy, mu)
 
@@ -83,7 +85,12 @@ def train_ae(
                     )
 
                 np.save(os.path.join(PATH, "psnr_init.npy"), np.array(psnr))
-                print("PSNR: input {}, output {}".format(np.round(np.array(noisy_psnr), decimals=4), np.round(np.array(psnr), decimals=4)))
+                print(
+                    "PSNR: input {}, output {}".format(
+                        np.round(np.array(noisy_psnr), decimals=4),
+                        np.round(np.array(psnr), decimals=4),
+                    )
+                )
 
     for epoch in tqdm(range(epoch_start, epoch_end)):
         scheduler.step()
@@ -95,7 +102,7 @@ def train_ae(
             if data_distribution == "binomial":
                 sampler = torch.distributions.bernoulli.Bernoulli(probs=img)
                 img_noisy = sampler.sample()
-                for j in range(Jg-1):
+                for j in range(Jg - 1):
                     img_noisy += sampler.sample()
                 img_noisy /= Jg
             elif data_distribution == "poisson":
@@ -138,9 +145,11 @@ def train_ae(
                     for idx_test, (img_test, _) in enumerate(test_loader):
                         img_test = img_test.to(device)
                         if data_distribution == "binomial":
-                            sampler = torch.distributions.bernoulli.Bernoulli(probs=img_test)
+                            sampler = torch.distributions.bernoulli.Bernoulli(
+                                probs=img_test
+                            )
                             img_test_noisy = sampler.sample()
-                            for j in range(Jg-1):
+                            for j in range(Jg - 1):
                                 img_test_noisy += sampler.sample()
                             img_test_noisy /= Jg
                         elif data_distribution == "poisson":
@@ -150,7 +159,6 @@ def train_ae(
                                 continue
                             sampler = torch.distributions.poisson.Poisson(rate)
                             img_test_noisy = sampler.sample() * Q
-
 
                         Hx_hat, _, _ = net(img_test_noisy, mu)
 
@@ -167,17 +175,19 @@ def train_ae(
                         )
 
                     np.save(
-                        os.path.join(PATH, "psnr_epoch{}.npy".format(epoch)), np.array(psnr)
+                        os.path.join(PATH, "psnr_epoch{}.npy".format(epoch)),
+                        np.array(psnr),
                     )
                     print("PSNR: {}".format(np.round(np.array(psnr), decimals=4)))
 
         torch.save(loss_all, os.path.join(PATH, "loss_epoch{}.pt".format(epoch)))
 
-        torch.save(
-            net.H.weight.data, os.path.join(PATH, "H_epoch{}.pt".format(epoch))
-        )
+        torch.save(net.H.weight.data, os.path.join(PATH, "H_epoch{}.pt".format(epoch)))
 
-        if network == "DEA2DtrainablebiasBinomial" or network == "DEA2DtrainablebiasPoisson":
+        if (
+            network == "DEA2DtrainablebiasBinomial"
+            or network == "DEA2DtrainablebiasPoisson"
+        ):
             torch.save(net.relu.lam, os.path.join(PATH, "lam_epoch{}.pt".format(epoch)))
 
         print(

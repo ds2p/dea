@@ -14,20 +14,24 @@ import utils
 
 use_cuda = torch.cuda.is_available()
 
+
 class RELUTwosided(torch.nn.Module):
     def __init__(self, num_conv, lam=1e-3, L=100, device=None):
         super(RELUTwosided, self).__init__()
         self.L = L
-        self.lam = torch.nn.Parameter(lam * torch.ones(1, num_conv, 1, 1, device=device))
+        self.lam = torch.nn.Parameter(
+            lam * torch.ones(1, num_conv, 1, 1, device=device)
+        )
         self.relu = torch.nn.ReLU()
 
     def forward(self, x):
         lam = self.relu(self.lam)
         mask1 = (x > (lam / self.L)).float()
-        mask2 = (x < -(lam/ self.L)).float()
+        mask2 = (x < -(lam / self.L)).float()
         out = mask1 * (x - (lam / self.L))
         out += mask2 * (x + (lam / self.L))
         return out
+
 
 class DEA1DBinomial(torch.nn.Module):
     def __init__(self, hyp, H=None):
@@ -105,6 +109,7 @@ class DEA1DBinomial(torch.nn.Module):
         Hx = self.H(x_new)
 
         return Hx, x_new, self.lam
+
 
 class DEA2DBinomial(torch.nn.Module):
     def __init__(self, hyp, H=None):
@@ -196,13 +201,14 @@ class DEA2DBinomial(torch.nn.Module):
 
         num_batches = x_batched_padded.shape[0]
 
-
         D_enc1 = self.HT(x_batched_padded).shape[2]
         D_enc2 = self.HT(x_batched_padded).shape[3]
 
-
         self.lam = self.sigma * torch.sqrt(
-            2 * torch.log(torch.zeros(1, device=self.device) + (self.num_conv * D_enc1 * D_enc2))
+            2
+            * torch.log(
+                torch.zeros(1, device=self.device) + (self.num_conv * D_enc1 * D_enc2)
+            )
         )
 
         x_old = torch.zeros(
@@ -224,9 +230,15 @@ class DEA2DBinomial(torch.nn.Module):
             x_tilda = x_batched_padded - self.sigmoid(H_yk_mu)
             x_new = yk + self.HT(x_tilda) / self.L
             if self.twosided:
-                x_new = (x_new > (self.lam / self.L)).float() * (x_new - (self.lam / self.L)) + (x_new < -(self.lam / self.L)).float() * (x_new + (self.lam / self.L))
+                x_new = (x_new > (self.lam / self.L)).float() * (
+                    x_new - (self.lam / self.L)
+                ) + (x_new < -(self.lam / self.L)).float() * (
+                    x_new + (self.lam / self.L)
+                )
             else:
-                x_new = (x_new > (self.lam / self.L)).float() * (x_new - (self.lam / self.L))
+                x_new = (x_new > (self.lam / self.L)).float() * (
+                    x_new - (self.lam / self.L)
+                )
 
             t_new = (1 + torch.sqrt(1 + 4 * t_old * t_old)) / 2
             yk = x_new + (t_old - 1) / t_new * (x_new - x_old)
@@ -234,11 +246,14 @@ class DEA2DBinomial(torch.nn.Module):
             x_old = x_new
             t_old = t_new
 
-        z = (torch.masked_select(self.H(x_new), valids_batched.byte()).reshape(
-            x.shape[0], self.stride ** 2, *x.shape[1:]
-        )).mean(dim=1, keepdim=False)
+        z = (
+            torch.masked_select(self.H(x_new), valids_batched.byte()).reshape(
+                x.shape[0], self.stride ** 2, *x.shape[1:]
+            )
+        ).mean(dim=1, keepdim=False)
 
         return z, x_new, self.lam
+
 
 class DEA2DtrainablebiasBinomial(torch.nn.Module):
     def __init__(self, hyp, H=None):
@@ -331,10 +346,8 @@ class DEA2DtrainablebiasBinomial(torch.nn.Module):
 
         num_batches = x_batched_padded.shape[0]
 
-
         D_enc1 = self.HT(x_batched_padded).shape[2]
         D_enc2 = self.HT(x_batched_padded).shape[3]
-
 
         x_old = torch.zeros(
             num_batches, self.num_conv, D_enc1, D_enc2, device=self.device
@@ -363,12 +376,14 @@ class DEA2DtrainablebiasBinomial(torch.nn.Module):
             x_old = x_new
             t_old = t_new
 
-        z = (torch.masked_select(self.H(x_new), valids_batched.byte()).reshape(
-            x.shape[0], self.stride ** 2, *x.shape[1:]
-        )).mean(dim=1, keepdim=False)
-
+        z = (
+            torch.masked_select(self.H(x_new), valids_batched.byte()).reshape(
+                x.shape[0], self.stride ** 2, *x.shape[1:]
+            )
+        ).mean(dim=1, keepdim=False)
 
         return z, x_new, self.lam
+
 
 class DEA2DtrainablebiasPoisson(torch.nn.Module):
     def __init__(self, hyp, H=None):
@@ -460,10 +475,8 @@ class DEA2DtrainablebiasPoisson(torch.nn.Module):
 
         num_batches = x_batched_padded.shape[0]
 
-
         D_enc1 = self.HT(x_batched_padded).shape[2]
         D_enc2 = self.HT(x_batched_padded).shape[3]
-
 
         x_old = torch.zeros(
             num_batches, self.num_conv, D_enc1, D_enc2, device=self.device
@@ -492,26 +505,60 @@ class DEA2DtrainablebiasPoisson(torch.nn.Module):
             x_old = x_new
             t_old = t_new
 
-        z = (torch.masked_select(self.H(x_new), valids_batched.byte()).reshape(
-            x.shape[0], self.stride ** 2, *x.shape[1:]
-        )).mean(dim=1, keepdim=False)
-
+        z = (
+            torch.masked_select(self.H(x_new), valids_batched.byte()).reshape(
+                x.shape[0], self.stride ** 2, *x.shape[1:]
+            )
+        ).mean(dim=1, keepdim=False)
 
         return z, x_new, self.lam
 
+
 class DnCNN(torch.nn.Module):
-    def __init__(self, depth=17, n_channels=64, image_channels=1, use_bnorm=True, kernel_size=3, device=None):
+    def __init__(
+        self,
+        depth=17,
+        n_channels=64,
+        image_channels=1,
+        use_bnorm=True,
+        kernel_size=3,
+        device=None,
+    ):
         super(DnCNN, self).__init__()
         padding = 1
         layers = []
 
-        layers.append(torch.nn.Conv2d(in_channels=image_channels, out_channels=n_channels, kernel_size=kernel_size, padding=padding, bias=True))
+        layers.append(
+            torch.nn.Conv2d(
+                in_channels=image_channels,
+                out_channels=n_channels,
+                kernel_size=kernel_size,
+                padding=padding,
+                bias=True,
+            )
+        )
         layers.append(torch.nn.ReLU(inplace=True))
-        for _ in range(depth-2):
-            layers.append(torch.nn.Conv2d(in_channels=n_channels, out_channels=n_channels, kernel_size=kernel_size, padding=padding, bias=False))
-            layers.append(torch.nn.BatchNorm2d(n_channels, eps=0.0001, momentum = 0.95))
+        for _ in range(depth - 2):
+            layers.append(
+                torch.nn.Conv2d(
+                    in_channels=n_channels,
+                    out_channels=n_channels,
+                    kernel_size=kernel_size,
+                    padding=padding,
+                    bias=False,
+                )
+            )
+            layers.append(torch.nn.BatchNorm2d(n_channels, eps=0.0001, momentum=0.95))
             layers.append(torch.nn.ReLU(inplace=True))
-        layers.append(torch.nn.Conv2d(in_channels=n_channels, out_channels=image_channels, kernel_size=kernel_size, padding=padding, bias=False))
+        layers.append(
+            torch.nn.Conv2d(
+                in_channels=n_channels,
+                out_channels=image_channels,
+                kernel_size=kernel_size,
+                padding=padding,
+                bias=False,
+            )
+        )
         self.dncnn = torch.nn.Sequential(*layers)
         self._initialize_weights()
 
@@ -520,7 +567,7 @@ class DnCNN(torch.nn.Module):
     def forward(self, x):
         y = x
         out = self.dncnn(x)
-        return y-out
+        return y - out
 
     def _initialize_weights(self):
         for m in self.modules():

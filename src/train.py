@@ -31,6 +31,7 @@ warnings.filterwarnings("ignore")
 
 ex = Experiment("train", ingredients=[config_ingredient])
 
+
 @ex.automain
 def run(cfg):
 
@@ -62,7 +63,6 @@ def run(cfg):
     else:
         print("dataset is not implemented.")
 
-
     if hyp["init_with_DCT"]:
         dct_dictionary = DCTDictionary(
             hyp["dictionary_dim"], np.int(np.sqrt(hyp["num_conv"]))
@@ -91,14 +91,21 @@ def run(cfg):
     else:
         print("model does not exist!")
 
-
     criterion = utils.LogisticLoss(hyp["data_distribution"])
     optimizer = optim.Adam(net.parameters(), lr=hyp["lr"], eps=1e-3)
 
     if hyp["cyclic"]:
-        scheduler = optim.lr_scheduler.CyclicLR(optimizer, base_lr=hyp["base_lr"], max_lr=hyp["max_lr"], step_size_up=hyp["step_size"], cycle_momentum=False)
+        scheduler = optim.lr_scheduler.CyclicLR(
+            optimizer,
+            base_lr=hyp["base_lr"],
+            max_lr=hyp["max_lr"],
+            step_size_up=hyp["step_size"],
+            cycle_momentum=False,
+        )
     else:
-        scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=hyp["lr_step"], gamma=hyp["lr_decay"])
+        scheduler = optim.lr_scheduler.StepLR(
+            optimizer, step_size=hyp["lr_step"], gamma=hyp["lr_decay"]
+        )
 
     print("train auto-encoder.")
     net = trainer.train_ae(

@@ -11,8 +11,10 @@ from torch.utils.data import Dataset, DataLoader
 import torchvision
 import numpy as np
 
+
 def generate_poisson_noisy_image(x, peak=1):
     return np.random.poisson(x * peak) / peak
+
 
 def get_MNIST_loaders(batch_size, shuffle=False, train_batch=None, test_batch=None):
     if train_batch == None:
@@ -34,9 +36,7 @@ def get_MNIST_loader(batch_size, trainable=True, shuffle=False):
             train=trainable,
             download=True,
             transform=torchvision.transforms.Compose(
-                [
-                    torchvision.transforms.ToTensor(),
-                ]
+                [torchvision.transforms.ToTensor()]
             ),
         ),
         batch_size=batch_size,
@@ -104,6 +104,7 @@ def get_VOC_loader(batch_size, image_set, crop_dim=(250, 250), shuffle=False):
         shuffle=shuffle,
     )
     return loader
+
 
 def get_VOC_loaders_detection(
     batch_size, crop_dim=(250, 250), shuffle=False, train_batch=None, test_batch=None

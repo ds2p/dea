@@ -10,6 +10,7 @@ import torch
 import torch.nn.functional as F
 import numpy as np
 
+
 class LogisticLoss(torch.nn.Module):
     def __init__(self, type):
         super(LogisticLoss, self).__init__()
@@ -18,12 +19,12 @@ class LogisticLoss(torch.nn.Module):
 
     def forward(self, y, Hx, mu):
         if self.type == "binomial":
-            loss = -torch.mean(y * (Hx+mu), dim=(-1, -2)) + torch.mean(
-                torch.log1p(torch.exp(Hx+mu)), dim=(-1, -2)
+            loss = -torch.mean(y * (Hx + mu), dim=(-1, -2)) + torch.mean(
+                torch.log1p(torch.exp(Hx + mu)), dim=(-1, -2)
             )
         elif self.type == "poisson":
-            loss = -torch.mean(y * (Hx+mu), dim=(-1, -2)) + torch.mean(
-                torch.exp(Hx+mu), dim=(-1, -2)
+            loss = -torch.mean(y * (Hx + mu), dim=(-1, -2)) + torch.mean(
+                torch.exp(Hx + mu), dim=(-1, -2)
             )
         return torch.mean(loss)
 
@@ -69,6 +70,7 @@ def PSNR(x, x_hat):
     mse = np.mean((x - x_hat) ** 2)
     max_x = np.max(x)
     return 20 * np.log10(max_x) - 10 * np.log10(mse)
+
 
 def calc_pad_sizes(x, dictionary_dim=8, stride=1):
     left_pad = stride
