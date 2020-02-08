@@ -15,6 +15,7 @@ config_ingredient = Ingredient("cfg")
 use_cuda = torch.cuda.is_available()
 device = torch.device("cuda:0" if use_cuda else "cpu")
 
+
 @config_ingredient.config
 def cfg():
     hyp = {
@@ -88,6 +89,7 @@ def cfg():
         "lr2": 0.1,
     }
 
+
 ####################
 ###### PEAK 4 ######
 ####################
@@ -133,6 +135,7 @@ def poisson_ista15_stride7_peak4_11x11_169_onesided_free_random_elu():
         "supervised": True,
     }
 
+
 @config_ingredient.named_config
 def poisson_ista15_stride7_peak4_11x11_169_onesided_tied_random_elu():
     hyp = {
@@ -174,6 +177,7 @@ def poisson_ista15_stride7_peak4_11x11_169_onesided_tied_random_elu():
         "mu": 0.0,
         "supervised": True,
     }
+
 
 ####################
 ###### PEAK 2 ######
@@ -220,6 +224,7 @@ def poisson_ista15_stride7_peak2_11x11_169_onesided_free_random_elu_smllr():
         "supervised": True,
     }
 
+
 @config_ingredient.named_config
 def poisson_ista15_stride7_peak2_11x11_169_onesided_tied_random_elu_smllr():
     hyp = {
@@ -262,9 +267,11 @@ def poisson_ista15_stride7_peak2_11x11_169_onesided_tied_random_elu_smllr():
         "supervised": True,
     }
 
+
 ####################
 ###### PEAK 1 ######
 ####################
+
 
 @config_ingredient.named_config
 def poisson_ista15_stride7_peak1_11x11_169_onesided_free_random_elu_smllr():
@@ -307,6 +314,7 @@ def poisson_ista15_stride7_peak1_11x11_169_onesided_free_random_elu_smllr():
         "mu": 0.0,
         "supervised": True,
     }
+
 
 @config_ingredient.named_config
 def poisson_ista15_stride7_peak1_11x11_169_onesided_tied_random_elu_smllr():

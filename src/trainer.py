@@ -293,6 +293,7 @@ def train_ae(
 
     return net
 
+
 def train_ae_simulated(
     net,
     data_loader,

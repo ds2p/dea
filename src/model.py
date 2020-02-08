@@ -12,6 +12,7 @@ import numpy as np
 
 import utils
 
+
 class DEA1D(torch.nn.Module):
     def __init__(self, hyp, H=None):
         super(DEA1D, self).__init__()
@@ -87,6 +88,7 @@ class DEA1D(torch.nn.Module):
 
         return z, x_new, self.lam
 
+
 class DEA2Dfree(torch.nn.Module):
     def __init__(self, hyp, H=None):
         super(DEA2Dfree, self).__init__()
@@ -107,7 +109,8 @@ class DEA2Dfree(torch.nn.Module):
             self.register_parameter(
                 "b",
                 torch.nn.Parameter(
-                    torch.zeros((1, self.num_conv, 1, 1), device=self.device) + hyp["lam"]
+                    torch.zeros((1, self.num_conv, 1, 1), device=self.device)
+                    + hyp["lam"]
                 ),
             )
         else:
@@ -115,7 +118,8 @@ class DEA2Dfree(torch.nn.Module):
                 self.register_parameter(
                     "b{}".format(t),
                     torch.nn.Parameter(
-                        torch.zeros((1, self.num_conv, 1, 1), device=self.device) + hyp["lam"]
+                        torch.zeros((1, self.num_conv, 1, 1), device=self.device)
+                        + hyp["lam"]
                     ),
                 )
 
@@ -140,7 +144,13 @@ class DEA2Dfree(torch.nn.Module):
         H = F.normalize(H, p="fro", dim=(-1, -2))
 
         if self.L is None:
-            self.L = utils.conv_power_method(H, [512, 512], num_iters=200, stride=self.stride, model_distribution=self.model_distribution)
+            self.L = utils.conv_power_method(
+                H,
+                [512, 512],
+                num_iters=200,
+                stride=self.stride,
+                model_distribution=self.model_distribution,
+            )
             self.L *= 5
         else:
             self.L = torch.tensor(self.L, device=self.device).float()
@@ -256,9 +266,9 @@ class DEA2Dfree(torch.nn.Module):
                     x_new = F.relu(x_new - self.get_param("b"))
             else:
                 if self.twosided:
-                    x_new = F.relu(torch.abs(x_new) - self.get_param("b{}".format(t))) * torch.sign(
-                        x_new
-                    )
+                    x_new = F.relu(
+                        torch.abs(x_new) - self.get_param("b{}".format(t))
+                    ) * torch.sign(x_new)
                 else:
                     x_new = F.relu(x_new - self.get_param("b{}".format(t)))
 
@@ -270,6 +280,7 @@ class DEA2Dfree(torch.nn.Module):
         ).mean(dim=1, keepdim=False)
 
         return z, x_new, 0
+
 
 class DEA2Dtied(torch.nn.Module):
     def __init__(self, hyp, H=None):
@@ -291,7 +302,8 @@ class DEA2Dtied(torch.nn.Module):
             self.register_parameter(
                 "b",
                 torch.nn.Parameter(
-                    torch.zeros((1, self.num_conv, 1, 1), device=self.device) + hyp["lam"]
+                    torch.zeros((1, self.num_conv, 1, 1), device=self.device)
+                    + hyp["lam"]
                 ),
             )
         else:
@@ -299,7 +311,8 @@ class DEA2Dtied(torch.nn.Module):
                 self.register_parameter(
                     "b{}".format(t),
                     torch.nn.Parameter(
-                        torch.zeros((1, self.num_conv, 1, 1), device=self.device) + hyp["lam"]
+                        torch.zeros((1, self.num_conv, 1, 1), device=self.device)
+                        + hyp["lam"]
                     ),
                 )
 
@@ -324,7 +337,13 @@ class DEA2Dtied(torch.nn.Module):
         H = F.normalize(H, p="fro", dim=(-1, -2))
 
         if self.L is None:
-            self.L = utils.conv_power_method(H, [512, 512], num_iters=200, stride=self.stride, model_distribution=self.model_distribution)
+            self.L = utils.conv_power_method(
+                H,
+                [512, 512],
+                num_iters=200,
+                stride=self.stride,
+                model_distribution=self.model_distribution,
+            )
             self.L *= 5
         else:
             self.L = torch.tensor(self.L, device=self.device).float()
@@ -429,12 +448,11 @@ class DEA2Dtied(torch.nn.Module):
                     x_new = F.relu(x_new - self.get_param("b"))
             else:
                 if self.twosided:
-                    x_new = F.relu(torch.abs(x_new) - self.get_param("b{}".format(t))) * torch.sign(
-                        x_new
-                    )
+                    x_new = F.relu(
+                        torch.abs(x_new) - self.get_param("b{}".format(t))
+                    ) * torch.sign(x_new)
                 else:
                     x_new = F.relu(x_new - self.get_param("b{}".format(t)))
-
 
         z = (
             torch.masked_select(

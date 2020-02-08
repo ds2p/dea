@@ -64,6 +64,7 @@ class DEALoss(torch.nn.Module):
                 print("ERROR: the loss is not implemented!")
         return torch.mean(loss)
 
+
 def normalize1d(x):
     return F.normalize(x, dim=-1)
 
@@ -124,8 +125,14 @@ def calc_pad_sizes(x, dictionary_dim=8, stride=1):
     bot_pad += stride
     return left_pad, right_pad, top_pad, bot_pad
 
-def conv_power_method(D, image_size, num_iters=100, stride=1, model_distribution="gaussian"):
-    needles_shape = [int(((image_size[0] - D.shape[-2])/stride)+1), int(((image_size[1] - D.shape[-1])/stride)+1)]
+
+def conv_power_method(
+    D, image_size, num_iters=100, stride=1, model_distribution="gaussian"
+):
+    needles_shape = [
+        int(((image_size[0] - D.shape[-2]) / stride) + 1),
+        int(((image_size[1] - D.shape[-1]) / stride) + 1),
+    ]
     x = torch.randn(1, D.shape[0], *needles_shape).type_as(D)
     for _ in range(num_iters):
         c = torch.norm(x.reshape(-1))

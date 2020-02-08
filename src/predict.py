@@ -105,14 +105,11 @@ def predict():
         num_test = len(img_list)
         c = ["k", "b", "r", "g", "purple", "orange", "y", "m", "c"]
 
-
     loss = torch.zeros(num_epochs, device=device)
     psnr = np.zeros(num_epochs)
     for epoch in range(num_epochs):
         loss[epoch] = torch.tensor(
-            torch.load(
-                os.path.join(PATH, "loss_epoch{}.pt".format(epoch)), device
-            )
+            torch.load(os.path.join(PATH, "loss_epoch{}.pt".format(epoch)), device)
         )
         psnr[epoch] = np.load(os.path.join(PATH, "psnr_epoch{}.npy".format(epoch)))[0]
 
@@ -131,9 +128,7 @@ def predict():
     print(random_date)
 
     print("load data.")
-    test_loader = generator.get_path_loader(
-        1, test_path, shuffle=False
-    )
+    test_loader = generator.get_path_loader(1, test_path, shuffle=False)
 
     print("create model.")
     net_init = torch.load(os.path.join(PATH, "model_init.pt"))
