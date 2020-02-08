@@ -50,7 +50,7 @@ def predict():
     num_epochs = 399
 
     test_path = "../data/test_img/"
-    img_list = ["man", "couple", "boat", "brdige", "cameraman", "house", "peppers"]
+    img_list = ["man", "couple", "boat", "bridge", "cameraman", "house", "peppers"]
 
     # test_path = "../data/Set12/"
     # test_path = "../data/BSD68/"
