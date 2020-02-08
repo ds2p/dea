@@ -12,30 +12,9 @@ import numpy as np
 
 import utils
 
-use_cuda = torch.cuda.is_available()
-
-
-class RELUTwosided(torch.nn.Module):
-    def __init__(self, num_conv, lam=1e-3, L=100, device=None):
-        super(RELUTwosided, self).__init__()
-        self.L = L
-        self.lam = torch.nn.Parameter(
-            lam * torch.ones(1, num_conv, 1, 1, device=device)
-        )
-        self.relu = torch.nn.ReLU()
-
-    def forward(self, x):
-        lam = self.relu(self.lam)
-        mask1 = (x > (lam / self.L)).float()
-        mask2 = (x < -(lam / self.L)).float()
-        out = mask1 * (x - (lam / self.L))
-        out += mask2 * (x + (lam / self.L))
-        return out
-
-
-class DEA1DBinomial(torch.nn.Module):
+class DEA1D(torch.nn.Module):
     def __init__(self, hyp, H=None):
-        super(DEA1DBinomial, self).__init__()
+        super(DEA1D, self).__init__()
 
         self.T = hyp["num_iters"]
         self.L = hyp["L"]
@@ -45,40 +24,28 @@ class DEA1DBinomial(torch.nn.Module):
         self.sigma = hyp["sigma"]
         self.stride = hyp["stride"]
         self.twosided = hyp["twosided"]
-
-        self.H = torch.nn.ConvTranspose1d(
-            self.num_conv,
-            1,
-            kernel_size=self.dictionary_dim,
-            stride=self.stride,
-            bias=False,
-        )
-        self.HT = torch.nn.Conv1d(
-            1,
-            self.num_conv,
-            kernel_size=self.dictionary_dim,
-            stride=self.stride,
-            bias=False,
-        )
-
-        if H is not None:
-            self.H.weight.data = H.clone()
+        self.model_distribution = hyp["model_distribution"]
 
         self.relu = torch.nn.ReLU()
-        self.sigmoid = torch.nn.Sigmoid()
+        if self.model_distribution == "binomial":
+            self.sigmoid = torch.nn.Sigmoid()
 
-        self.H.weight.data = self.H.weight.data.to(self.device)
-        self.HT.weight.data = self.H.weight.data
+        if H is None:
+            H = torch.randn((self.num_conv, 1, self.dictionary_dim), device=self.device)
+            H = F.normalize(H, p=2, dim=-1)
+        self.register_parameter("H", torch.nn.Parameter(H))
+
+    def get_param(self, name):
+        return self.state_dict(keep_vars=True)[name]
 
     def normalize(self):
-        self.H.weight.data = F.normalize(self.H.weight.data, dim=-1)
-        self.HT.weight.data = self.H.weight.data
+        self.get_param("H").data = F.normalize(self.get_param("H").data, p=2, dim=-1)
 
-    def forward(self, x, mu):
+    def forward(self, x, mu=0):
         num_batches = x.shape[0]
 
         D_in = x.shape[-1]
-        D_enc = D_in - self.dictionary_dim + 1
+        D_enc = F.conv1d(x, self.get_param("H"), stride=self.stride).shape[-1]
 
         self.lam = self.sigma * torch.sqrt(
             2 * torch.log(torch.zeros(1, device=self.device) + (self.num_conv * D_enc))
@@ -90,9 +57,19 @@ class DEA1DBinomial(torch.nn.Module):
         t_old = torch.tensor(1, device=self.device).float()
 
         for t in range(self.T):
-            H_yk_mu = self.H(yk) + mu
-            x_tilda = x - self.sigmoid(H_yk_mu)
-            x_new = yk + self.HT(x_tilda) / self.L
+            H_yk_mu = (
+                F.conv_transpose1d(yk, self.get_param("H"), stride=self.stride) + mu
+            )
+            if self.model_distribution == "gaussian":
+                x_tilda = x - H_yk_mu
+            elif self.model_distribution == "binomial":
+                x_tilda = x - self.sigmoid(H_yk_mu)
+            elif self.model_distribution == "poisson":
+                x_tilda = x - torch.exp(H_yk_mu)
+
+            x_new = (
+                yk + F.conv1d(x_tilda, self.get_param("H"), stride=self.stride) / self.L
+            )
             if self.twosided:
                 x_new = self.relu(torch.abs(x_new) - self.lam / self.L) * torch.sign(
                     x_new
@@ -106,51 +83,90 @@ class DEA1DBinomial(torch.nn.Module):
             x_old = x_new
             t_old = t_new
 
-        Hx = self.H(x_new)
+        z = F.conv_transpose1d(x_new, self.get_param("H"), stride=self.stride) + mu
 
-        return Hx, x_new, self.lam
+        return z, x_new, self.lam
 
-
-class DEA2DBinomial(torch.nn.Module):
+class DEA2Dfree(torch.nn.Module):
     def __init__(self, hyp, H=None):
-        super(DEA1DBinomial, self).__init__()
+        super(DEA2Dfree, self).__init__()
 
         self.T = hyp["num_iters"]
-        self.L = hyp["L"]
         self.num_conv = hyp["num_conv"]
         self.dictionary_dim = hyp["dictionary_dim"]
         self.device = hyp["device"]
-        self.sigma = hyp["sigma"]
         self.stride = hyp["stride"]
         self.twosided = hyp["twosided"]
+        self.model_distribution = hyp["model_distribution"]
+        self.single_bias = hyp["single_bias"]
+        self.L = hyp["L"]
+        self.peak = hyp["peak"]
+        self.nonlin = None
 
-        self.H = torch.nn.ConvTranspose2d(
-            self.num_conv,
-            1,
-            kernel_size=self.dictionary_dim,
-            stride=self.stride,
-            bias=False,
-        )
-        self.HT = torch.nn.Conv2d(
-            1,
-            self.num_conv,
-            kernel_size=self.dictionary_dim,
-            stride=self.stride,
-            bias=False,
-        )
+        if self.single_bias:
+            self.register_parameter(
+                "b",
+                torch.nn.Parameter(
+                    torch.zeros((1, self.num_conv, 1, 1), device=self.device) + hyp["lam"]
+                ),
+            )
+        else:
+            for t in range(self.T):
+                self.register_parameter(
+                    "b{}".format(t),
+                    torch.nn.Parameter(
+                        torch.zeros((1, self.num_conv, 1, 1), device=self.device) + hyp["lam"]
+                    ),
+                )
 
-        if H is not None:
-            self.H.weight.data = H.clone()
+        if hyp["nonlin"] == "ELU":
+            self.nonlin = torch.nn.ELU(alpha=self.peak)
+        elif hyp["nonlin"] == "LeakyReLU":
+            self.nonlin = torch.nn.LeakyReLU()
+        elif hyp["nonlin"] == "ReLU":
+            self.nonlin = torch.nn.ReLU()
+        elif hyp["nonlin"] == "SELU":
+            self.nonlin = torch.nn.SELU()
 
-        self.relu = torch.nn.ReLU()
-        self.sigmoid = torch.nn.Sigmoid()
+        if self.model_distribution == "binomial":
+            self.sigmoid = torch.nn.Sigmoid()
 
-        self.H.weight.data = self.H.weight.data.to(self.device)
-        self.HT.weight.data = self.H.weight.data
+        if H is None:
+            H = torch.randn(
+                (self.num_conv, 1, self.dictionary_dim, self.dictionary_dim),
+                device=self.device,
+            )
+
+        H = F.normalize(H, p="fro", dim=(-1, -2))
+
+        if self.L is None:
+            self.L = utils.conv_power_method(H, [512, 512], num_iters=200, stride=self.stride, model_distribution=self.model_distribution)
+            self.L *= 5
+        else:
+            self.L = torch.tensor(self.L, device=self.device).float()
+
+        H /= torch.sqrt(self.L)
+
+        We = torch.clone(H)
+        Wd = torch.clone(H)
+
+        self.register_parameter("H", torch.nn.Parameter(H))
+        self.register_parameter("We", torch.nn.Parameter(We))
+        self.register_parameter("Wd", torch.nn.Parameter(Wd))
+
+    def get_param(self, name):
+        return self.state_dict(keep_vars=True)[name]
 
     def normalize(self):
-        self.H.weight.data = F.normalize(self.H.weight.data, dim=(-1, -2))
-        self.HT.weight.data = self.H.weight.data
+        self.get_param("H").data = F.normalize(
+            self.get_param("H").data, p="fro", dim=(-1, -2)
+        )
+        self.get_param("We").data = F.normalize(
+            self.get_param("We").data, p="fro", dim=(-1, -2)
+        )
+        self.get_param("Wd").data = F.normalize(
+            self.get_param("Wd").data, p="fro", dim=(-1, -2)
+        )
 
     def split_image(self, x):
         if self.stride == 1:
@@ -196,25 +212,18 @@ class DEA2DBinomial(torch.nn.Module):
         valids_batched = valids_batched.reshape(-1, *valids_batched.shape[2:])
         return x_batched_padded, valids_batched
 
-    def forward(self, x, mu):
+    def forward(self, x, mu=0):
         x_batched_padded, valids_batched = self.split_image(x)
 
         num_batches = x_batched_padded.shape[0]
 
-        D_enc1 = self.HT(x_batched_padded).shape[2]
-        D_enc2 = self.HT(x_batched_padded).shape[3]
+        D_enc1 = F.conv2d(
+            x_batched_padded, self.get_param("We"), stride=self.stride
+        ).shape[2]
+        D_enc2 = F.conv2d(
+            x_batched_padded, self.get_param("We"), stride=self.stride
+        ).shape[3]
 
-        self.lam = self.sigma * torch.sqrt(
-            2
-            * torch.log(
-                torch.zeros(1, device=self.device) + (self.num_conv * D_enc1 * D_enc2)
-            )
-        )
-
-        x_old = torch.zeros(
-            num_batches, self.num_conv, D_enc1, D_enc2, device=self.device
-        )
-        yk = torch.zeros(num_batches, self.num_conv, D_enc1, D_enc2, device=self.device)
         x_new = torch.zeros(
             num_batches, self.num_conv, D_enc1, D_enc2, device=self.device
         )
@@ -223,79 +232,114 @@ class DEA2DBinomial(torch.nn.Module):
         del D_enc2
         del num_batches
 
-        t_old = torch.tensor(1, device=self.device).float()
-
         for t in range(self.T):
-            H_yk_mu = self.H(yk) + mu
-            x_tilda = x_batched_padded - self.sigmoid(H_yk_mu)
-            x_new = yk + self.HT(x_tilda) / self.L
-            if self.twosided:
-                x_new = (x_new > (self.lam / self.L)).float() * (
-                    x_new - (self.lam / self.L)
-                ) + (x_new < -(self.lam / self.L)).float() * (
-                    x_new + (self.lam / self.L)
-                )
+            H_yk_mu = (
+                F.conv_transpose2d(x_new, self.get_param("H"), stride=self.stride) + mu
+            )
+            if self.model_distribution == "gaussian":
+                x_tilda = x_batched_padded - H_yk_mu
+            elif self.model_distribution == "binomial":
+                x_tilda = x_batched_padded - self.sigmoid(H_yk_mu)
+            elif self.model_distribution == "poisson":
+                x_tilda = x_batched_padded - torch.exp(H_yk_mu)
+                if self.nonlin is not None:
+                    x_tilda = self.nonlin(x_tilda)
+
+            x_new = x_new + F.conv2d(x_tilda, self.get_param("We"), stride=self.stride)
+
+            if self.single_bias:
+                if self.twosided:
+                    x_new = F.relu(torch.abs(x_new) - self.get_param("b")) * torch.sign(
+                        x_new
+                    )
+                else:
+                    x_new = F.relu(x_new - self.get_param("b"))
             else:
-                x_new = (x_new > (self.lam / self.L)).float() * (
-                    x_new - (self.lam / self.L)
-                )
-
-            t_new = (1 + torch.sqrt(1 + 4 * t_old * t_old)) / 2
-            yk = x_new + (t_old - 1) / t_new * (x_new - x_old)
-
-            x_old = x_new
-            t_old = t_new
+                if self.twosided:
+                    x_new = F.relu(torch.abs(x_new) - self.get_param("b{}".format(t))) * torch.sign(
+                        x_new
+                    )
+                else:
+                    x_new = F.relu(x_new - self.get_param("b{}".format(t)))
 
         z = (
-            torch.masked_select(self.H(x_new), valids_batched.byte()).reshape(
-                x.shape[0], self.stride ** 2, *x.shape[1:]
-            )
+            torch.masked_select(
+                F.conv_transpose2d(x_new, self.get_param("Wd"), stride=self.stride),
+                valids_batched.byte(),
+            ).reshape(x.shape[0], self.stride ** 2, *x.shape[1:])
         ).mean(dim=1, keepdim=False)
 
-        return z, x_new, self.lam
+        return z, x_new, 0
 
-
-class DEA2DtrainablebiasBinomial(torch.nn.Module):
+class DEA2Dtied(torch.nn.Module):
     def __init__(self, hyp, H=None):
-        super(DEA2DtrainablebiasBinomial, self).__init__()
+        super(DEA2Dtied, self).__init__()
 
         self.T = hyp["num_iters"]
-        self.L = hyp["L"]
         self.num_conv = hyp["num_conv"]
         self.dictionary_dim = hyp["dictionary_dim"]
         self.device = hyp["device"]
-        self.sigma = hyp["sigma"]
         self.stride = hyp["stride"]
         self.twosided = hyp["twosided"]
-        self.lam = hyp["lam"]
+        self.model_distribution = hyp["model_distribution"]
+        self.single_bias = hyp["single_bias"]
+        self.L = hyp["L"]
+        self.peak = hyp["peak"]
+        self.nonlin = None
 
-        self.H = torch.nn.ConvTranspose2d(
-            self.num_conv,
-            1,
-            kernel_size=self.dictionary_dim,
-            stride=self.stride,
-            bias=False,
-        )
-        self.HT = torch.nn.Conv2d(
-            1,
-            self.num_conv,
-            kernel_size=self.dictionary_dim,
-            stride=self.stride,
-            bias=False,
-        )
+        if self.single_bias:
+            self.register_parameter(
+                "b",
+                torch.nn.Parameter(
+                    torch.zeros((1, self.num_conv, 1, 1), device=self.device) + hyp["lam"]
+                ),
+            )
+        else:
+            for t in range(self.T):
+                self.register_parameter(
+                    "b{}".format(t),
+                    torch.nn.Parameter(
+                        torch.zeros((1, self.num_conv, 1, 1), device=self.device) + hyp["lam"]
+                    ),
+                )
 
-        if H is not None:
-            self.H.weight.data = H.clone()
+        if hyp["nonlin"] == "ELU":
+            self.nonlin = torch.nn.ELU(alpha=self.peak)
+        elif hyp["nonlin"] == "LeakyReLU":
+            self.nonlin = torch.nn.LeakyReLU()
+        elif hyp["nonlin"] == "ReLU":
+            self.nonlin = torch.nn.ReLU()
+        elif hyp["nonlin"] == "SELU":
+            self.nonlin = torch.nn.SELU()
 
-        self.relu = RELUTwosided(self.num_conv, self.lam, self.L, self.device)
-        self.sigmoid = torch.nn.Sigmoid()
+        if self.model_distribution == "binomial":
+            self.sigmoid = torch.nn.Sigmoid()
 
-        self.H.weight.data = self.H.weight.data.to(self.device)
-        self.HT.weight.data = self.H.weight.data
+        if H is None:
+            H = torch.randn(
+                (self.num_conv, 1, self.dictionary_dim, self.dictionary_dim),
+                device=self.device,
+            )
+
+        H = F.normalize(H, p="fro", dim=(-1, -2))
+
+        if self.L is None:
+            self.L = utils.conv_power_method(H, [512, 512], num_iters=200, stride=self.stride, model_distribution=self.model_distribution)
+            self.L *= 5
+        else:
+            self.L = torch.tensor(self.L, device=self.device).float()
+
+        H /= torch.sqrt(self.L)
+
+        self.register_parameter("H", torch.nn.Parameter(H))
+
+    def get_param(self, name):
+        return self.state_dict(keep_vars=True)[name]
 
     def normalize(self):
-        self.H.weight.data = F.normalize(self.H.weight.data, dim=(-1, -2))
-        self.HT.weight.data = self.H.weight.data
+        self.get_param("H").data = F.normalize(
+            self.get_param("H").data, p="fro", dim=(-1, -2)
+        )
 
     def split_image(self, x):
         if self.stride == 1:
@@ -326,7 +370,7 @@ class DEA2DtrainablebiasBinomial(torch.nn.Module):
                 mode="reflect",
             )
             valids = F.pad(
-                torch.ones_like(I),
+                torch.ones_like(x),
                 pad=(
                     left_pad - col_shift,
                     right_pad + col_shift,
@@ -341,18 +385,18 @@ class DEA2DtrainablebiasBinomial(torch.nn.Module):
         valids_batched = valids_batched.reshape(-1, *valids_batched.shape[2:])
         return x_batched_padded, valids_batched
 
-    def forward(self, x, mu):
+    def forward(self, x, mu=0):
         x_batched_padded, valids_batched = self.split_image(x)
 
         num_batches = x_batched_padded.shape[0]
 
-        D_enc1 = self.HT(x_batched_padded).shape[2]
-        D_enc2 = self.HT(x_batched_padded).shape[3]
+        D_enc1 = F.conv2d(
+            x_batched_padded, self.get_param("H"), stride=self.stride
+        ).shape[2]
+        D_enc2 = F.conv2d(
+            x_batched_padded, self.get_param("H"), stride=self.stride
+        ).shape[3]
 
-        x_old = torch.zeros(
-            num_batches, self.num_conv, D_enc1, D_enc2, device=self.device
-        )
-        yk = torch.zeros(num_batches, self.num_conv, D_enc1, D_enc2, device=self.device)
         x_new = torch.zeros(
             num_batches, self.num_conv, D_enc1, D_enc2, device=self.device
         )
@@ -361,220 +405,42 @@ class DEA2DtrainablebiasBinomial(torch.nn.Module):
         del D_enc2
         del num_batches
 
-        t_old = torch.tensor(1, device=self.device).float()
-
         for t in range(self.T):
-            H_yk_mu = self.H(yk) + mu
-            x_tilda = x_batched_padded - self.sigmoid(H_yk_mu)
-            x_new = yk + self.HT(x_tilda) / self.L
+            H_yk_mu = (
+                F.conv_transpose2d(x_new, self.get_param("H"), stride=self.stride) + mu
+            )
+            if self.model_distribution == "gaussian":
+                x_tilda = x_batched_padded - H_yk_mu
+            elif self.model_distribution == "binomial":
+                x_tilda = x_batched_padded - self.sigmoid(H_yk_mu)
+            elif self.model_distribution == "poisson":
+                x_tilda = x_batched_padded - torch.exp(H_yk_mu)
+                if self.nonlin is not None:
+                    x_tilda = self.nonlin(x_tilda)
 
-            x_new = self.relu(x_new)
+            x_new = x_new + F.conv2d(x_tilda, self.get_param("H"), stride=self.stride)
 
-            t_new = (1 + torch.sqrt(1 + 4 * t_old * t_old)) / 2
-            yk = x_new + (t_old - 1) / t_new * (x_new - x_old)
+            if self.single_bias:
+                if self.twosided:
+                    x_new = F.relu(torch.abs(x_new) - self.get_param("b")) * torch.sign(
+                        x_new
+                    )
+                else:
+                    x_new = F.relu(x_new - self.get_param("b"))
+            else:
+                if self.twosided:
+                    x_new = F.relu(torch.abs(x_new) - self.get_param("b{}".format(t))) * torch.sign(
+                        x_new
+                    )
+                else:
+                    x_new = F.relu(x_new - self.get_param("b{}".format(t)))
 
-            x_old = x_new
-            t_old = t_new
 
         z = (
-            torch.masked_select(self.H(x_new), valids_batched.byte()).reshape(
-                x.shape[0], self.stride ** 2, *x.shape[1:]
-            )
+            torch.masked_select(
+                F.conv_transpose2d(x_new, self.get_param("H"), stride=self.stride),
+                valids_batched.byte(),
+            ).reshape(x.shape[0], self.stride ** 2, *x.shape[1:])
         ).mean(dim=1, keepdim=False)
 
-        return z, x_new, self.lam
-
-
-class DEA2DtrainablebiasPoisson(torch.nn.Module):
-    def __init__(self, hyp, H=None):
-        super(DEA2DtrainablebiasPoisson, self).__init__()
-
-        self.T = hyp["num_iters"]
-        self.L = hyp["L"]
-        self.num_conv = hyp["num_conv"]
-        self.dictionary_dim = hyp["dictionary_dim"]
-        self.device = hyp["device"]
-        self.sigma = hyp["sigma"]
-        self.stride = hyp["stride"]
-        self.twosided = hyp["twosided"]
-        self.lam = hyp["lam"]
-
-        self.H = torch.nn.ConvTranspose2d(
-            self.num_conv,
-            1,
-            kernel_size=self.dictionary_dim,
-            stride=self.stride,
-            bias=False,
-        )
-        self.HT = torch.nn.Conv2d(
-            1,
-            self.num_conv,
-            kernel_size=self.dictionary_dim,
-            stride=self.stride,
-            bias=False,
-        )
-
-        if H is not None:
-            self.H.weight.data = H.clone()
-
-        self.relu = RELUTwosided(self.num_conv, self.lam, self.L, self.device)
-
-        self.H.weight.data = self.H.weight.data.to(self.device)
-        self.HT.weight.data = self.H.weight.data
-
-    def normalize(self):
-        self.H.weight.data = F.normalize(self.H.weight.data, dim=(-1, -2))
-        self.HT.weight.data = self.H.weight.data
-
-    def split_image(self, x):
-        if self.stride == 1:
-            return x, torch.ones_like(x)
-        left_pad, right_pad, top_pad, bot_pad = utils.calc_pad_sizes(
-            x, self.dictionary_dim, self.stride
-        )
-        x_batched_padded = torch.zeros(
-            x.shape[0],
-            self.stride ** 2,
-            x.shape[1],
-            top_pad + x.shape[2] + bot_pad,
-            left_pad + x.shape[3] + right_pad,
-            device=self.device,
-        ).type_as(x)
-        valids_batched = torch.zeros_like(x_batched_padded)
-        for num, (row_shift, col_shift) in enumerate(
-            [(i, j) for i in range(self.stride) for j in range(self.stride)]
-        ):
-            x_padded = F.pad(
-                x,
-                pad=(
-                    left_pad - col_shift,
-                    right_pad + col_shift,
-                    top_pad - row_shift,
-                    bot_pad + row_shift,
-                ),
-                mode="reflect",
-            )
-            valids = F.pad(
-                torch.ones_like(I),
-                pad=(
-                    left_pad - col_shift,
-                    right_pad + col_shift,
-                    top_pad - row_shift,
-                    bot_pad + row_shift,
-                ),
-                mode="constant",
-            )
-            x_batched_padded[:, num, :, :, :] = x_padded
-            valids_batched[:, num, :, :, :] = valids
-        x_batched_padded = x_batched_padded.reshape(-1, *x_batched_padded.shape[2:])
-        valids_batched = valids_batched.reshape(-1, *valids_batched.shape[2:])
-        return x_batched_padded, valids_batched
-
-    def forward(self, x, mu):
-        x_batched_padded, valids_batched = self.split_image(x)
-
-        num_batches = x_batched_padded.shape[0]
-
-        D_enc1 = self.HT(x_batched_padded).shape[2]
-        D_enc2 = self.HT(x_batched_padded).shape[3]
-
-        x_old = torch.zeros(
-            num_batches, self.num_conv, D_enc1, D_enc2, device=self.device
-        )
-        yk = torch.zeros(num_batches, self.num_conv, D_enc1, D_enc2, device=self.device)
-        x_new = torch.zeros(
-            num_batches, self.num_conv, D_enc1, D_enc2, device=self.device
-        )
-
-        del D_enc1
-        del D_enc2
-        del num_batches
-
-        t_old = torch.tensor(1, device=self.device).float()
-
-        for t in range(self.T):
-            H_yk_mu = self.H(yk) + mu
-            x_tilda = x_batched_padded - torch.exp(H_yk_mu)
-            x_new = yk + self.HT(x_tilda) / self.L
-
-            x_new = self.relu(x_new)
-
-            t_new = (1 + torch.sqrt(1 + 4 * t_old * t_old)) / 2
-            yk = x_new + (t_old - 1) / t_new * (x_new - x_old)
-
-            x_old = x_new
-            t_old = t_new
-
-        z = (
-            torch.masked_select(self.H(x_new), valids_batched.byte()).reshape(
-                x.shape[0], self.stride ** 2, *x.shape[1:]
-            )
-        ).mean(dim=1, keepdim=False)
-
-        return z, x_new, self.lam
-
-
-class DnCNN(torch.nn.Module):
-    def __init__(
-        self,
-        depth=17,
-        n_channels=64,
-        image_channels=1,
-        use_bnorm=True,
-        kernel_size=3,
-        device=None,
-    ):
-        super(DnCNN, self).__init__()
-        padding = 1
-        layers = []
-
-        layers.append(
-            torch.nn.Conv2d(
-                in_channels=image_channels,
-                out_channels=n_channels,
-                kernel_size=kernel_size,
-                padding=padding,
-                bias=True,
-            )
-        )
-        layers.append(torch.nn.ReLU(inplace=True))
-        for _ in range(depth - 2):
-            layers.append(
-                torch.nn.Conv2d(
-                    in_channels=n_channels,
-                    out_channels=n_channels,
-                    kernel_size=kernel_size,
-                    padding=padding,
-                    bias=False,
-                )
-            )
-            layers.append(torch.nn.BatchNorm2d(n_channels, eps=0.0001, momentum=0.95))
-            layers.append(torch.nn.ReLU(inplace=True))
-        layers.append(
-            torch.nn.Conv2d(
-                in_channels=n_channels,
-                out_channels=image_channels,
-                kernel_size=kernel_size,
-                padding=padding,
-                bias=False,
-            )
-        )
-        self.dncnn = torch.nn.Sequential(*layers)
-        self._initialize_weights()
-
-        self.dncnn.to(device)
-
-    def forward(self, x):
-        y = x
-        out = self.dncnn(x)
-        return y - out
-
-    def _initialize_weights(self):
-        for m in self.modules():
-            if isinstance(m, torch.nn.Conv2d):
-                torch.nn.init.orthogonal_(m.weight)
-                if m.bias is not None:
-                    torch.nn.init.constant_(m.bias, 0)
-            elif isinstance(m, torch.nn.BatchNorm2d):
-                torch.nn.init.constant_(m.weight, 1)
-                torch.nn.init.constant_(m.bias, 0)
+        return z, x_new, 0

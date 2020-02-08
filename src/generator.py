@@ -155,10 +155,10 @@ def get_VOC_loader_detection(batch_size, image_set, crop_dim=(250, 250), shuffle
     return loader
 
 
-def get_lena_loader(batch_size, test_path, shuffle=False):
+def get_path_loader(batch_size, image_path, shuffle=False):
     loader = torch.utils.data.DataLoader(
         torchvision.datasets.ImageFolder(
-            root=test_path,
+            root=image_path,
             transform=torchvision.transforms.Compose(
                 [torchvision.transforms.Grayscale(), torchvision.transforms.ToTensor()]
             ),

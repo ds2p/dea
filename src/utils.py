@@ -11,23 +11,58 @@ import torch.nn.functional as F
 import numpy as np
 
 
-class LogisticLoss(torch.nn.Module):
-    def __init__(self, type):
-        super(LogisticLoss, self).__init__()
+class DEALoss(torch.nn.Module):
+    def __init__(self, model_dist, loss_dist):
+        super(DEALoss, self).__init__()
 
-        self.type = type
+        self.model_dist = model_dist
+        self.loss_dist = loss_dist
 
-    def forward(self, y, Hx, mu):
-        if self.type == "binomial":
-            loss = -torch.mean(y * (Hx + mu), dim=(-1, -2)) + torch.mean(
-                torch.log1p(torch.exp(Hx + mu)), dim=(-1, -2)
-            )
-        elif self.type == "poisson":
-            loss = -torch.mean(y * (Hx + mu), dim=(-1, -2)) + torch.mean(
-                torch.exp(Hx + mu), dim=(-1, -2)
-            )
+        self.a = 0.8
+        self.win_size = 4
+        self.data_range = 255
+        self.channel = 1
+
+    def forward(self, y, Hx, mu=0, Q=1):
+        if self.model_dist == "gaussian":
+            loss = F.mse_loss(y, Hx + mu, reduction="none")
+        elif self.model_dist == "binomial":
+            if self.loss_dist == "binomial":
+                loss = -torch.mean(y * (Hx + mu), dim=(-1, -2)) + torch.mean(
+                    torch.log1p(torch.exp(Hx + mu)), dim=(-1, -2)
+                )
+            elif self.loss_dist == "gaussian":
+                loss = F.mse_loss(y, torch.nn.Sigmoid()(Hx + mu), reduction="none")
+            elif self.loss_dist == "ms_ssim":
+                loss = self.a * (
+                    1
+                    - MS_SSIM(
+                        win_size=self.win_size,
+                        data_range=self.data_range,
+                        channel=self.channel,
+                    )(y, torch.nn.Sigmoid()(Hx + mu))
+                ) + (1 - self.a) * torch.nn.L1Loss()(y, torch.nn.Sigmoid()(Hx + mu))
+            else:
+                print("ERROR: the loss is not implemented!")
+        elif self.model_dist == "poisson":
+            if self.loss_dist == "poisson":
+                loss = -torch.mean(y * (Hx + mu), dim=(-1, -2)) + torch.mean(
+                    torch.exp(Hx + mu), dim=(-1, -2)
+                )
+            elif self.loss_dist == "gaussian":
+                loss = F.mse_loss(y, Q * torch.exp(Hx + mu), reduction="none")
+            elif self.loss_dist == "ms_ssim":
+                loss = self.a * (
+                    1
+                    - MS_SSIM(
+                        win_size=self.win_size,
+                        data_range=self.data_range,
+                        channel=self.channel,
+                    )(y, Q * torch.exp(Hx + mu))
+                ) + (1 - self.a) * torch.nn.L1Loss()(y, Q * torch.exp(Hx + mu))
+            else:
+                print("ERROR: the loss is not implemented!")
         return torch.mean(loss)
-
 
 def normalize1d(x):
     return F.normalize(x, dim=-1)
@@ -88,3 +123,17 @@ def calc_pad_sizes(x, dictionary_dim=8, stride=1):
     right_pad += stride
     bot_pad += stride
     return left_pad, right_pad, top_pad, bot_pad
+
+def conv_power_method(D, image_size, num_iters=100, stride=1, model_distribution="gaussian"):
+    needles_shape = [int(((image_size[0] - D.shape[-2])/stride)+1), int(((image_size[1] - D.shape[-1])/stride)+1)]
+    x = torch.randn(1, D.shape[0], *needles_shape).type_as(D)
+    for _ in range(num_iters):
+        c = torch.norm(x.reshape(-1))
+        x = x / c
+        y = F.conv_transpose2d(x, D, stride=stride)
+        if model_distribution == "binomial":
+            y = self.sigmoid(y)
+        elif model_distribution == "poisson":
+            y = torch.exp(y)
+        x = F.conv2d(y, D, stride=stride)
+    return torch.norm(x.reshape(-1))
