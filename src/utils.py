@@ -11,9 +11,62 @@ import torch.nn.functional as F
 import numpy as np
 
 
-class DEALoss(torch.nn.Module):
+class DEALoss1D(torch.nn.Module):
     def __init__(self, model_dist, loss_dist):
-        super(DEALoss, self).__init__()
+        super(DEALoss1D, self).__init__()
+
+        self.model_dist = model_dist
+        self.loss_dist = loss_dist
+
+        self.a = 0.8
+        self.win_size = 4
+        self.data_range = 255
+        self.channel = 1
+
+    def forward(self, y, Hx, Q=1):
+        if self.model_dist == "gaussian":
+            loss = F.mse_loss(y, Hx, reduction="none")
+        elif self.model_dist == "binomial":
+            if self.loss_dist == "binomial":
+                loss = -torch.mean(y * (Hx), dim=-1) + torch.mean(
+                    torch.log1p(torch.exp(Hx)), dim=-1
+                )
+            elif self.loss_dist == "gaussian":
+                loss = F.mse_loss(y, torch.nn.Sigmoid()(Hx), reduction="none")
+            elif self.loss_dist == "ms_ssim":
+                loss = self.a * (
+                    1
+                    - MS_SSIM(
+                        win_size=self.win_size,
+                        data_range=self.data_range,
+                        channel=self.channel,
+                    )(y, torch.nn.Sigmoid()(Hx))
+                ) + (1 - self.a) * torch.nn.L1Loss()(y, torch.nn.Sigmoid()(Hx))
+            else:
+                print("ERROR: the loss is not implemented!")
+        elif self.model_dist == "poisson":
+            if self.loss_dist == "poisson":
+                loss = -torch.mean(y * (Hx), dim=-1) + torch.mean(
+                    torch.exp(Hx), dim=-1
+                )
+            elif self.loss_dist == "gaussian":
+                loss = F.mse_loss(y, Q * torch.exp(Hx), reduction="none")
+            elif self.loss_dist == "ms_ssim":
+                loss = self.a * (
+                    1
+                    - MS_SSIM(
+                        win_size=self.win_size,
+                        data_range=self.data_range,
+                        channel=self.channel,
+                    )(y, Q * torch.exp(Hx))
+                ) + (1 - self.a) * torch.nn.L1Loss()(y, Q * torch.exp(Hx))
+            else:
+                print("ERROR: the loss is not implemented!")
+        return torch.mean(loss)
+
+class DEALoss2D(torch.nn.Module):
+    def __init__(self, model_dist, loss_dist):
+        super(DEALoss2D, self).__init__()
 
         self.model_dist = model_dist
         self.loss_dist = loss_dist
@@ -63,7 +116,6 @@ class DEALoss(torch.nn.Module):
             else:
                 print("ERROR: the loss is not implemented!")
         return torch.mean(loss)
-
 
 def normalize1d(x):
     return F.normalize(x, dim=-1)

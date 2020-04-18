@@ -100,7 +100,10 @@ def run(cfg):
 
     torch.save(net, os.path.join(PATH, "model_init.pt"))
 
-    criterion = utils.DEALoss(hyp["model_distribution"], hyp["loss_distribution"])
+    if hyp["network"] == "DEA1D":
+        criterion = utils.DEALoss1D(hyp["model_distribution"], hyp["loss_distribution"])
+    else:
+        criterion = utils.DEALoss2D(hyp["model_distribution"], hyp["loss_distribution"])
 
     if hyp["init_with_DCT"]:
         net.normalize()
