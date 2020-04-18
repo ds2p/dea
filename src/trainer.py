@@ -178,11 +178,11 @@ def train_ae(
 
             if supervised:
                 if model_distribution == "poisson":
-                    loss = criterion(img, Hx, mu, Q)
+                    loss = criterion(img, Hx, Q)
                 else:
-                    loss = criterion(img, Hx, mu)
+                    loss = criterion(img, Hx)
             else:
-                loss = criterion(img_noisy, Hx, mu)
+                loss = criterion(img_noisy, Hx)
 
             if loss > 10:
                 f.write("skip. loss is large! \r\n")
@@ -327,7 +327,7 @@ def train_ae_simulated(
             # ===================forward=====================
             Hx, _, _ = net(y, mu)
 
-            loss = criterion(y, Hx, mu)
+            loss = criterion(y, Hx)
 
             loss_all += loss.item()
             # ===================backward====================

@@ -23,16 +23,16 @@ class DEALoss(torch.nn.Module):
         self.data_range = 255
         self.channel = 1
 
-    def forward(self, y, Hx, mu=0, Q=1):
+    def forward(self, y, Hx, Q=1):
         if self.model_dist == "gaussian":
-            loss = F.mse_loss(y, Hx + mu, reduction="none")
+            loss = F.mse_loss(y, Hx, reduction="none")
         elif self.model_dist == "binomial":
             if self.loss_dist == "binomial":
-                loss = -torch.mean(y * (Hx + mu), dim=(-1, -2)) + torch.mean(
-                    torch.log1p(torch.exp(Hx + mu)), dim=(-1, -2)
+                loss = -torch.mean(y * (Hx), dim=(-1, -2)) + torch.mean(
+                    torch.log1p(torch.exp(Hx)), dim=(-1, -2)
                 )
             elif self.loss_dist == "gaussian":
-                loss = F.mse_loss(y, torch.nn.Sigmoid()(Hx + mu), reduction="none")
+                loss = F.mse_loss(y, torch.nn.Sigmoid()(Hx), reduction="none")
             elif self.loss_dist == "ms_ssim":
                 loss = self.a * (
                     1
@@ -40,17 +40,17 @@ class DEALoss(torch.nn.Module):
                         win_size=self.win_size,
                         data_range=self.data_range,
                         channel=self.channel,
-                    )(y, torch.nn.Sigmoid()(Hx + mu))
-                ) + (1 - self.a) * torch.nn.L1Loss()(y, torch.nn.Sigmoid()(Hx + mu))
+                    )(y, torch.nn.Sigmoid()(Hx))
+                ) + (1 - self.a) * torch.nn.L1Loss()(y, torch.nn.Sigmoid()(Hx))
             else:
                 print("ERROR: the loss is not implemented!")
         elif self.model_dist == "poisson":
             if self.loss_dist == "poisson":
-                loss = -torch.mean(y * (Hx + mu), dim=(-1, -2)) + torch.mean(
-                    torch.exp(Hx + mu), dim=(-1, -2)
+                loss = -torch.mean(y * (Hx), dim=(-1, -2)) + torch.mean(
+                    torch.exp(Hx), dim=(-1, -2)
                 )
             elif self.loss_dist == "gaussian":
-                loss = F.mse_loss(y, Q * torch.exp(Hx + mu), reduction="none")
+                loss = F.mse_loss(y, Q * torch.exp(Hx), reduction="none")
             elif self.loss_dist == "ms_ssim":
                 loss = self.a * (
                     1
@@ -58,8 +58,8 @@ class DEALoss(torch.nn.Module):
                         win_size=self.win_size,
                         data_range=self.data_range,
                         channel=self.channel,
-                    )(y, Q * torch.exp(Hx + mu))
-                ) + (1 - self.a) * torch.nn.L1Loss()(y, Q * torch.exp(Hx + mu))
+                    )(y, Q * torch.exp(Hx))
+                ) + (1 - self.a) * torch.nn.L1Loss()(y, Q * torch.exp(Hx))
             else:
                 print("ERROR: the loss is not implemented!")
         return torch.mean(loss)
@@ -89,8 +89,8 @@ def err1d_H(H, H_hat):
 
 def err2d_H(H, H_hat):
 
-    H = H.detach().cpu().numpy()
-    H_hat = H_hat.detach().cpu().numpy()
+    H = H.clone().detach().cpu().numpy()
+    H_hat = H_hat.clone().detach().cpu().numpy()
 
     num_conv = H.shape[0]
 
