@@ -12,10 +12,6 @@ import torchvision
 import numpy as np
 
 
-def generate_poisson_noisy_image(x, peak=1):
-    return np.random.poisson(x * peak) / peak
-
-
 def get_MNIST_loaders(batch_size, shuffle=False, train_batch=None, test_batch=None):
     if train_batch == None:
         train_loader = get_MNIST_loader(batch_size, trainable=True, shuffle=shuffle)
