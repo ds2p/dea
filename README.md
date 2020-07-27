@@ -1,6 +1,6 @@
-[![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/ambv/black)
+# Visit https://github.com/btolooshams/dea for code.
 
-# DEA (deep exponential auto-encoder)
+## DEA (deep exponential auto-encoder)
 
 code for the paper
 
